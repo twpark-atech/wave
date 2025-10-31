@@ -1,0 +1,11 @@
+# requirements.txt  (백엔드 공용)
+fastapi==0.115.2
+uvicorn[standard]==0.30.6
+pillow==10.4.0
+pyyaml==6.0.2
+transformers==4.45.2
+accelerate==0.34.2
+sentencepiece==0.2.0
+# Qwen2-VL trust_remote_code True 사용
+einops==0.8.0
+# (CUDA 환경이면 pytorch는 베이스 이미지에 포함)
