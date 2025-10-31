@@ -18,7 +18,6 @@
     button:disabled { opacity:.5; cursor:not-allowed; }
     pre { white-space:pre-wrap; word-break:break-word; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#dbe7f6; }
     .muted { color:#8fa3b8; }
-    input[type="text"] { flex:1; padding:10px 12px; border-radius:8px; border:1px solid #2b3647; background:#0b0f14; color:#e6eef8; }
   </style>
 </head>
 <body>
@@ -42,16 +41,7 @@
         <div class="pill"><span class="muted">추론 지연</span> <span id="latency">-</span> ms</div>
         <div class="pill"><span class="muted">FPS(전송)</span> <span id="fps">-</span></div>
       </div>
-      <div class="row" style="margin-top:12px;">
-        <input id="txtQuery" type="text" placeholder="텍스트 질문을 입력하고 Enter를 누르세요" />
-        <button id="btnSendText">보내기</button>
-      </div>
-      <div class="row" style="margin-top:8px;">
-        <button id="btnMic" disabled>🎙️ 음성 질문(누르면 녹음 시작/종료)</button>
-        <span id="recStatus" class="muted">대기</span>
-      </div>
     </div>
-
     <div class="card">
       <div class="pill" style="margin-bottom:8px;">설명 결과</div>
       <pre id="out">(대기 중)</pre>
@@ -68,21 +58,10 @@ const fps = document.getElementById('fps');
 const btnStart = document.getElementById('btnStart');
 const btnStop = document.getElementById('btnStop');
 
-const txtQuery = document.getElementById('txtQuery');
-const btnSendText = document.getElementById('btnSendText');
-const btnMic = document.getElementById('btnMic');
-const recStatus = document.getElementById('recStatus');
-
 let ws = null;
 let stream = null;
 let running = false;
 let sent = 0, lastSec = 0;
-
-// --- Audio recording state ---
-let mediaRecorder = null;
-let audioChunks = [];
-let micStream = null;
-let recording = false;
 
 function dataURLFromCanvas() {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -91,12 +70,6 @@ function dataURLFromCanvas() {
   canvas.width = W; canvas.height = H;
   ctx.drawImage(video, 0, 0, W, H);
   return canvas.toDataURL('image/webp', 0.85);
-}
-
-function wsSendJSON(obj) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(obj));
-  }
 }
 
 async function start() {
@@ -109,15 +82,13 @@ async function start() {
   video.srcObject = stream;
 
   ws = new WebSocket(`ws://${location.host}/ws`);
-  ws.onopen = () => { btnMic.disabled = false; };
+  ws.onopen = () => { /* 연결됨 */ };
   ws.onmessage = (ev) => {
     try {
       const j = JSON.parse(ev.data);
-      if ('latency_ms' in j) latency.textContent = j.latency_ms ?? '-';
-      if ('explanation' in j) out.textContent = j.explanation || '(no text)';
-    } catch(e) {
-      // ignore parsing error
-    }
+      latency.textContent = j.latency_ms ?? '-';
+      out.textContent = j.explanation || '(no text)';
+    } catch(e) {}
   };
   ws.onclose = () => { stop(); };
 
@@ -127,8 +98,7 @@ async function start() {
     const now = performance.now();
     if (now - lastTS > 500 && ws && ws.readyState === WebSocket.OPEN && video.videoWidth > 0) {
       const url = dataURLFromCanvas();
-      // 이미지 프레임 전송 (기존: dataURL만 보냈다면, 이제 type 지정)
-      wsSendJSON({ type: "frame", image: url });
+      ws.send(url);
       lastTS = now;
       sent++;
     }
@@ -147,75 +117,12 @@ function stop() {
   running = false;
   btnStart.disabled = false;
   btnStop.disabled = true;
-  btnMic.disabled = true;
-
   if (ws && ws.readyState === WebSocket.OPEN) ws.close();
   ws = null;
-
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-
-  // 녹음 중이면 중단
-  if (recording) stopRecording();
-
   fps.textContent = '-'; latency.textContent = '-'; res.textContent = '-';
   out.textContent = '(대기 중)';
-  recStatus.textContent = '대기';
 }
-
-// --- 텍스트 질문 전송 ---
-function sendText() {
-  const q = txtQuery.value.trim();
-  if (!q) return;
-  wsSendJSON({ type: "text", user_query: q });
-  // 즉시 반영되도록 입력창 초기화(선호에 따라 유지 가능)
-  // txtQuery.value = "";
-}
-btnSendText.onclick = sendText;
-txtQuery.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); sendText(); }
-});
-
-// --- 음성 녹음 토글 ---
-async function toggleMic() {
-  if (!recording) {
-    // start recording
-    try {
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (e) {
-      recStatus.textContent = '마이크 권한 거부됨';
-      return;
-    }
-    mediaRecorder = new MediaRecorder(micStream, { mimeType: "audio/webm" });
-    audioChunks = [];
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) audioChunks.push(e.data);
-    };
-    mediaRecorder.onstop = async () => {
-      const blob = new Blob(audioChunks, { type: "audio/webm" });
-      const buf = await blob.arrayBuffer();
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-      // 오디오 전송 (서버는 base64 디코드 후 STT 등 처리)
-      wsSendJSON({ type: "audio", mime: "audio/webm", data: base64 });
-      // 정리
-      micStream.getTracks().forEach(t => t.stop());
-      micStream = null;
-      audioChunks = [];
-    };
-    mediaRecorder.start();
-    recording = true;
-    recStatus.textContent = '녹음 중… (버튼 다시 누르면 전송)';
-    btnMic.textContent = '🛑 녹음 종료/전송';
-  } else {
-    // stop recording
-    recording = false;
-    recStatus.textContent = '인코딩/전송 중…';
-    btnMic.textContent = '🎙️ 음성 질문(누르면 녹음 시작/종료)';
-    if (mediaRecorder && mediaRecorder.state !== "inactive") {
-      mediaRecorder.stop();
-    }
-  }
-}
-btnMic.onclick = toggleMic;
 
 btnStart.onclick = start;
 btnStop.onclick = stop;

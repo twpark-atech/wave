@@ -1,69 +1,21 @@
 # docker-compose.yml
-version: "3.9"
 services:
-  api:
-    build:
-      context: .
-    # Dockerfile.backend 사용
-      dockerfile: Dockerfile.backend
-    container_name: vision-api
-    command: >
-      uvicorn app.server:app
-      --host 0.0.0.0 --port 8000
+  backend:
+    build: .
+    image: myapp:py
+    container_name: myapp-backend
+    command: ["uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8000:8000"
-    environment:
-      - TRANSFORMERS_VERBOSITY=info
-      - HF_HOME=/root/.cache/huggingface
-    volumes:
-      - ./:/app
-    # GPU 사용 시 해제
-    # gpus: all
+    restart: unless-stopped
 
-  rt:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    container_name: vision-rt
-    command: >
-      uvicorn app.rt_server:app
-      --host 0.0.0.0 --port 9000
-    ports:
-      - "9000:9000"
-    environment:
-      - TRANSFORMERS_VERBOSITY=info
-      - HF_HOME=/root/.cache/huggingface
-    volumes:
-      - ./:/app
-    # gpus: all
-    depends_on:
-      - api
-
-  web:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-    container_name: vision-web
-    environment:
-      # 프론트에서 백엔드 호출 주소를 고정하고 싶으면 UI 코드에서 사용
-      - API_BASE=http://localhost:8000
-      - RT_BASE=ws://localhost:9000/ws
+  frontend:
+    build: .
+    image: myapp:py
+    container_name: myapp-frontend
+    command: ["streamlit", "run", "ui/app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
     ports:
       - "8501:8501"
-    volumes:
-      - ./ui:/app/ui
-      - ./logo.png:/app/logo.png:ro
     depends_on:
-      - api
-      - rt
-
-  # cloudflared (옵션: 외부 HTTPS 공개 / quick tunnel)
-  # cloudflared-web:
-  #   image: cloudflare/cloudflared:latest
-  #   command: tunnel --url http://vision-web:8501
-  #   depends_on: [web]
-  #
-  # cloudflared-api:
-  #   image: cloudflare/cloudflared:latest
-  #   command: tunnel --url http://vision-api:8000
-  #   depends_on: [api]
+      - backend
+    restart: unless-stopped

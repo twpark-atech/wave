@@ -1,12 +1,15 @@
 # .dockerignore
+.git
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.swp
-*.swo
+*.py[cod]
+*.log
 .env
-.venv
-.cache/
-huggingface/
-.git/
+.env.*
+dist/
+build/
+.ipynb_checkpoints/
+.mypy_cache/
+.pytype/
+.pytest_cache/
+.DS_Store
+node_modules/
